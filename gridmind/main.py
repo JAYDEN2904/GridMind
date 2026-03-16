@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
+
+from spade.container import run_container
 
 from gridmind.agents.demand_response_agent import AccraIndustrialDRAgent
 from gridmind.agents.ecg_central_dispatch import ECGCentralDispatchAgent
@@ -50,6 +51,7 @@ from gridmind.environment.scenarios import (
     akosombo_curtailment,
     all_renewables_offline,
     gridco_line_trip,
+    presentation_showcase,
     spintex_feeder_fault,
     tema_shift_change_spike,
 )
@@ -73,6 +75,7 @@ def _parse_args() -> argparse.Namespace:
         choices=[
             'tema_spike', 'akosombo', 'spintex',
             'line_trip', 'all_offline', 'full_stress',
+            'presentation',
         ],
         default=None,
         help='Event scenario to inject during the simulation',
@@ -84,8 +87,13 @@ async def _inject_scenario(
     scenario_name: str,
     env: GhanaGridEnvironment,
     tick_interval: float,
+    dispatch_agent: ECGCentralDispatchAgent | None = None,
 ) -> None:
     """Wait until the injection tick, then fire the selected scenario(s)."""
+    if scenario_name == 'presentation':
+        await presentation_showcase(env, dispatch_agent, tick_interval)
+        return
+
     await asyncio.sleep(SCENARIO_INJECT_TICK * tick_interval)
 
     if scenario_name == 'full_stress':
@@ -143,14 +151,9 @@ async def main() -> None:
         jid=ECG_DISPATCH_JID, password=pw, env=env, demo_mode=demo_mode,
     )
 
-    all_agents = [
-        fault_watch,
-        forecast_unit,
-        *zone_agents,
-        *renewable_agents,
-        dr_agent,
-        dispatch_agent,
-    ]
+    controller_agents = [dispatch_agent, fault_watch, forecast_unit, dr_agent]
+    sensor_agents = [*zone_agents, *renewable_agents]
+    all_agents = controller_agents + sensor_agents
 
     print('╔═══════════════════════════════════════════════════╗')
     print('║    GridMind — Ghana Grid Multi-Agent Simulation   ║')
@@ -162,17 +165,26 @@ async def main() -> None:
     print('╚═══════════════════════════════════════════════════╝')
     print()
 
-    print('[BOOT] Starting all 12 agents...')
-    for agent in all_agents:
+    print('[BOOT] Starting controller agents (dispatch, fault watch, forecast, DR)...')
+    for agent in controller_agents:
         await agent.start()
-    print('[BOOT] All agents ONLINE.')
+    print('[BOOT] Controllers ONLINE — waiting for behaviour registration...')
+    await asyncio.sleep(1.0)
+
+    print('[BOOT] Starting sensor agents (zones, renewables)...')
+    for agent in sensor_agents:
+        await agent.start()
+    print('[BOOT] All 12 agents ONLINE.')
 
     metrics.start_recording(env)
 
     scenario_task = None
     if args.scenario:
         scenario_task = asyncio.create_task(
-            _inject_scenario(args.scenario, env, tick_interval),
+            _inject_scenario(
+                args.scenario, env, tick_interval,
+                dispatch_agent=dispatch_agent,
+            ),
         )
 
     try:
@@ -203,7 +215,4 @@ async def main() -> None:
 
 
 if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        sys.exit(0)
+    run_container(main(), embedded_xmpp_server=True)

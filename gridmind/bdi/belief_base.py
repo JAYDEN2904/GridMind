@@ -12,7 +12,7 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
-from gridmind.config import DISTRICT_CONFIG
+from gridmind.config import DISTRICT_CONFIG, OPTIMISE_THRESHOLD_PCT
 
 
 def _init_district_demands() -> dict[str, float]:
@@ -62,10 +62,5 @@ class ECGCentralDispatchBeliefs:
         return self.get_total_demand() / self.total_managed_capacity_mw
 
     def is_demand_rising(self) -> bool:
-        """True when more than 2 districts have demand within 10% of their ceiling."""
-        count = 0
-        for district, demand_mw in self.district_demands.items():
-            ceiling = DISTRICT_CONFIG[district]['ceiling_mw']
-            if demand_mw >= ceiling * 0.90:
-                count += 1
-        return count > 2
+        """True when total utilisation exceeds the optimise threshold (70%)."""
+        return self.get_utilisation_pct() > OPTIMISE_THRESHOLD_PCT

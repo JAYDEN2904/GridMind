@@ -40,6 +40,7 @@ from gridmind.config import (
     BROADCAST_INTERVAL,
     SHEDDING_ORDER,
     DISTRICT_CAPACITY,
+    EMERGENCY_THRESHOLD_PCT,
 )
 from gridmind.environment.ghana_grid_state import GhanaGridEnvironment
 
@@ -72,6 +73,13 @@ class ECGCentralDispatchAgent(Agent):
             beliefs = agent.beliefs
             tick = agent.env.tick
 
+            total_renew = sum(agent.env.renewable_available_mw.values())
+            if total_renew != beliefs.total_renewable_available_mw:
+                beliefs.update(
+                    'total_renewable_available_mw', total_renew,
+                    'synced from renewable agents', tick,
+                )
+
             new_desire = evaluate_desires(beliefs)
 
             if has_desire_changed(agent.current_desire, new_desire):
@@ -96,6 +104,13 @@ class ECGCentralDispatchAgent(Agent):
 
                 agent.current_desire = new_desire
                 agent.current_intention = new_intention
+
+                if old_desire == 'EMERGENCY_STABILISE' and new_desire != 'EMERGENCY_STABILISE':
+                    for d in agent.env.district_status:
+                        if agent.env.district_status[d] == 'shedding':
+                            agent.env.district_status[d] = 'normal'
+                    agent.dr_execution_pending = False
+                    print("[ECG DISPATCH] ✅ Emergency subsided — shedding cleared")
 
                 beliefs.update(
                     'current_desire', new_desire,
@@ -316,7 +331,7 @@ class ECGCentralDispatchAgent(Agent):
                     request_mw = max(0.0, demand - capacity * 0.90)
                     if request_mw > 0:
                         result = await initiate_contract_net(
-                            agent, request_mw, tick,
+                            agent, request_mw, tick, behaviour=self,
                         )
                         awarded = result.get('awarded_mw', 0.0)
                         if not result['success'] or awarded < request_mw:
@@ -334,7 +349,7 @@ class ECGCentralDispatchAgent(Agent):
 
             elif intention == 'optimise_renewable_mix':
                 if not agent.beliefs.pending_cnp_id:
-                    await initiate_contract_net(agent, 30.0, tick)
+                    await initiate_contract_net(agent, 30.0, tick, behaviour=self)
                     agent.beliefs.pending_cnp_id = None
 
             if agent.beliefs.demand_response_active and not agent.dr_execution_pending:
@@ -363,6 +378,36 @@ class ECGCentralDispatchAgent(Agent):
                         f"[ECG DISPATCH] 🏭 DR REQUEST: {gap_mw:.1f} MW "
                         f"to accra_industrial_dr"
                     )
+
+            if (
+                agent.current_desire == 'EMERGENCY_STABILISE'
+                and agent.env.get_utilisation_pct() > EMERGENCY_THRESHOLD_PCT
+            ):
+                shed_so_far = 0.0
+                overload_mw = (
+                    agent.env.get_total_demand()
+                    - agent.beliefs.total_managed_capacity_mw
+                )
+                for district in SHEDDING_ORDER:
+                    if shed_so_far >= overload_mw:
+                        break
+                    if agent.env.district_status[district] != 'shedding':
+                        agent.env.district_status[district] = 'shedding'
+                        shed_so_far += DISTRICT_CAPACITY[district] * 0.3
+                        agent.beliefs.audit_log.append({
+                            'tick': tick,
+                            'event': 'DUMSOR_ROTATION',
+                            'district': district,
+                            'reason': 'EMERGENCY_OVERLOAD',
+                            'reason_chain': (
+                                f"util>{EMERGENCY_THRESHOLD_PCT:.0%} → "
+                                f"proactive shed {district}"
+                            ),
+                        })
+                        print(
+                            f"[ECG DISPATCH] 🔴 DUMSOR ROTATION: "
+                            f"{district} — emergency overload"
+                        )
 
             interval = DEMO_TICK_INTERVAL if agent.demo_mode else TICK_INTERVAL
             await asyncio.sleep(interval)

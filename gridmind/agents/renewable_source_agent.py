@@ -14,6 +14,8 @@ from spade.agent import Agent
 from spade.behaviour import PeriodicBehaviour, CyclicBehaviour
 
 from gridmind.config import (
+    CNP_DEADLINE_TICKS,
+    DAY_CYCLE_TICKS,
     ECG_DISPATCH_JID,
     KALEO_SOLAR_JID,
     NZEMA_SOLAR_JID,
@@ -27,16 +29,17 @@ from gridmind.environment.ghana_grid_state import GhanaGridEnvironment
 
 
 def _solar_time_factor(tick: int) -> float:
-    """Map tick within a 48-tick day cycle to a solar irradiance factor [0, 1]."""
-    t = tick % 48
-    if t <= 8:
+    """Map tick within a 20-tick day cycle to a solar irradiance factor [0, 1].
+
+    Dawn at tick 4, peak solar at ticks 8-10, sunset by tick 14.
+    """
+    t = tick % DAY_CYCLE_TICKS
+    if t <= 3:
         return 0.0
-    if t <= 15:
-        return (t - 8) / 7.0
-    if t <= 24:
-        return 1.0
-    if t <= 31:
-        return 1.0 - (t - 24) / 7.0
+    if t <= 10:
+        return min(1.0, (t - 3) / 5.0)
+    if t <= 14:
+        return max(0.0, 1.0 - (t - 10) / 4.0)
     return 0.0
 
 
@@ -68,6 +71,7 @@ class RenewableSourceAgent(Agent):
             'time_of_day_factor': 0.0,
             'currently_injecting': False,
             'injecting_mw': 0.0,
+            'inject_countdown': 0,
         }
 
     # ── Behaviour 1: Capacity model update ───────────────────────
@@ -81,6 +85,13 @@ class RenewableSourceAgent(Agent):
             tick = agent.env.tick
             installed = beliefs['installed_mw']
             weather = beliefs['weather_factor']
+
+            if beliefs['inject_countdown'] > 0:
+                beliefs['inject_countdown'] -= 1
+                if beliefs['inject_countdown'] <= 0:
+                    beliefs['currently_injecting'] = False
+                    beliefs['injecting_mw'] = 0.0
+                    agent.env.renewable_injecting[agent.source_id] = False
 
             solar_factor = _solar_time_factor(tick)
 
@@ -160,6 +171,7 @@ class RenewableSourceAgent(Agent):
                 )
                 beliefs['currently_injecting'] = True
                 beliefs['injecting_mw'] = accepted_mw
+                beliefs['inject_countdown'] = CNP_DEADLINE_TICKS
                 beliefs['available_mw'] -= accepted_mw
                 agent.env.renewable_injecting[agent.source_id] = True
 

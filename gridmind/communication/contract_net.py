@@ -30,6 +30,7 @@ async def initiate_contract_net(
     agent: Any,
     request_mw: float,
     tick: int,
+    behaviour: Any = None,
 ) -> dict[str, Any]:
     """Execute a full FIPA Contract Net Protocol round.
 
@@ -67,7 +68,7 @@ async def initiate_contract_net(
             tick=tick,
             conversation_id=conversation_id,
         )
-        await agent.submit(cfp_msg)
+        await behaviour.send(cfp_msg)
 
     print(
         f"[ECG DISPATCH] 📢 CFP sent to all renewables "
@@ -126,7 +127,7 @@ async def initiate_contract_net(
         tick=tick,
         conversation_id=conversation_id,
     )
-    await agent.submit(accept_msg)
+    await behaviour.send(accept_msg)
 
     for loser in losers:
         loser_jid = RENEWABLE_CONFIG[loser['source']]['jid']
@@ -141,7 +142,7 @@ async def initiate_contract_net(
             tick=tick,
             conversation_id=conversation_id,
         )
-        await agent.submit(reject_msg)
+        await behaviour.send(reject_msg)
 
     agent.beliefs.audit_log.append({
         'tick': tick,
