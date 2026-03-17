@@ -104,24 +104,24 @@ class ECGForecastUnitAgent(Agent):
                 confidence = min(
                     1.0, len(history) / FORECAST_HISTORY_LEN
                 )
-                forecast_msg = build_message(
-                    to_jid=ECG_DISPATCH_JID,
-                    performative='INFORM',
-                    payload={
-                        'district': district,
-                        'forecast_mw': forecast_mw,
-                        'ceiling_mw': ceiling,
-                        'utilisation': utilisation,
-                        'horizon_ticks': FORECAST_HORIZON,
-                        'confidence': confidence,
-                        'tick': agent.env.tick,
-                    },
-                    sender_jid=str(agent.jid),
-                    tick=agent.env.tick,
-                )
-                await self.send(forecast_msg)
 
                 if forecast_mw > ceiling * PREEMPTIVE_THRESHOLD_PCT:
+                    forecast_msg = build_message(
+                        to_jid=ECG_DISPATCH_JID,
+                        performative='INFORM',
+                        payload={
+                            'district': district,
+                            'forecast_mw': forecast_mw,
+                            'ceiling_mw': ceiling,
+                            'utilisation': utilisation,
+                            'horizon_ticks': FORECAST_HORIZON,
+                            'confidence': confidence,
+                            'tick': agent.env.tick,
+                        },
+                        sender_jid=str(agent.jid),
+                        tick=agent.env.tick,
+                    )
+                    await self.send(forecast_msg)
                     print(
                         f"[ECG FORECAST] 📈 WARNING: {district} forecast "
                         f"{forecast_mw:.1f} MW ({utilisation:.1%} of ceiling) "

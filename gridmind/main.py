@@ -80,6 +80,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help='Event scenario to inject during the simulation',
     )
+    parser.add_argument(
+        '--ticks',
+        type=int,
+        default=SIMULATION_TICKS,
+        help='Number of simulation ticks',
+    )
     return parser.parse_args()
 
 
@@ -116,6 +122,7 @@ async def main() -> None:
     args = _parse_args()
     demo_mode: bool = args.demo_mode
     tick_interval = DEMO_TICK_INTERVAL if demo_mode else TICK_INTERVAL
+    total_ticks: int = args.ticks
 
     env = GhanaGridEnvironment()
     metrics = MetricsCollector()
@@ -151,22 +158,24 @@ async def main() -> None:
         jid=ECG_DISPATCH_JID, password=pw, env=env, demo_mode=demo_mode,
     )
 
-    controller_agents = [dispatch_agent, fault_watch, forecast_unit, dr_agent]
+    # Keep explicit lists for clarity of boot and shutdown ordering
+    controller_agents = [fault_watch, forecast_unit, dr_agent, dispatch_agent]
     sensor_agents = [*zone_agents, *renewable_agents]
     all_agents = controller_agents + sensor_agents
 
     print('╔═══════════════════════════════════════════════════╗')
     print('║    GridMind — Ghana Grid Multi-Agent Simulation   ║')
     print(f'║    Mode: {"DEMO" if demo_mode else "STANDARD"}'
-          f'  |  Ticks: {SIMULATION_TICKS}'
+          f'  |  Ticks: {total_ticks}'
           f'  |  Interval: {tick_interval}s   ║')
     if args.scenario:
         print(f'║    Scenario: {args.scenario:<38}║')
     print('╚═══════════════════════════════════════════════════╝')
     print()
 
-    print('[BOOT] Starting controller agents (dispatch, fault watch, forecast, DR)...')
-    for agent in controller_agents:
+    print('[BOOT] Starting controller agents (fault watch, forecast, DR)...')
+    # Infrastructure controllers first (without dispatch)
+    for agent in [fault_watch, forecast_unit, dr_agent]:
         await agent.start()
     print('[BOOT] Controllers ONLINE — waiting for behaviour registration...')
     await asyncio.sleep(1.0)
@@ -174,6 +183,9 @@ async def main() -> None:
     print('[BOOT] Starting sensor agents (zones, renewables)...')
     for agent in sensor_agents:
         await agent.start()
+    print('[BOOT] Sensor agents ONLINE — starting ECG Central Dispatch last...')
+
+    await dispatch_agent.start()
     print('[BOOT] All 12 agents ONLINE.')
 
     metrics.start_recording(env)
@@ -188,7 +200,7 @@ async def main() -> None:
         )
 
     try:
-        for _ in range(SIMULATION_TICKS):
+        for _ in range(total_ticks):
             env.tick_forward()
             metrics.record_tick(env, dispatch_agent.beliefs)
             dashboard.render(env, dispatch_agent.beliefs, env.tick)

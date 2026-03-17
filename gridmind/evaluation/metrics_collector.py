@@ -25,6 +25,7 @@ class MetricsCollector:
         self.start_tick: int = 0
         self.end_tick: int = 0
         self._audit_log_ref: list[dict[str, Any]] = []
+        self._forecast_error_history: list[float] = []
 
     def start_recording(self, env: GhanaGridEnvironment) -> None:
         self.start_tick = env.tick
@@ -53,6 +54,7 @@ class MetricsCollector:
         )
         available_mw = sum(env.renewable_available_mw.values())
 
+        # Track per-tick aggregate metrics
         self.tick_records.append({
             'tick': env.tick,
             'shedding_districts': len(shedding),
@@ -63,6 +65,15 @@ class MetricsCollector:
             'active_faults': len(beliefs.active_faults),
             'current_desire': beliefs.current_desire,
         })
+
+        # Track simple forecast error when forecasts are available
+        if beliefs.forecast:
+            for district, forecast_mw in beliefs.forecast.items():
+                actual = env.district_demand_mw.get(district)
+                if actual is None or actual <= 0:
+                    continue
+                abs_pct_error = abs(forecast_mw - actual) / actual
+                self._forecast_error_history.append(abs_pct_error)
 
     def generate_report(self) -> dict[str, Any]:
         if not self.tick_records:
@@ -91,6 +102,20 @@ class MetricsCollector:
         avg_latency = self._compute_response_latency()
         dr_success = self._compute_dr_success_rate()
 
+        forecast_accuracy = (
+            1.0 - (sum(self._forecast_error_history) / len(self._forecast_error_history))
+            if self._forecast_error_history
+            else 0.0
+        )
+
+        # Audit completeness: average number of audit entries per tick
+        total_audit_entries = len(self._audit_log_ref)
+        audit_completeness = (
+            total_audit_entries / len(self.tick_records)
+            if self.tick_records
+            else 0.0
+        )
+
         return {
             'total_ticks': len(self.tick_records),
             'dumsor_frequency': dumsor_ticks,
@@ -98,6 +123,8 @@ class MetricsCollector:
             'renewable_utilisation_pct': renewable_util,
             'average_response_latency': avg_latency,
             'dr_success_rate': dr_success,
+            'forecast_accuracy': forecast_accuracy,
+            'audit_completeness': audit_completeness,
             'peak_utilisation_pct': peak_util,
         }
 
@@ -171,6 +198,14 @@ class MetricsCollector:
         table.add_row(
             'DR Success Rate',
             f"{report['dr_success_rate']:.1%}",
+        )
+        table.add_row(
+            'Forecast Accuracy',
+            f"{report['forecast_accuracy']:.1%}",
+        )
+        table.add_row(
+            'Audit Completeness (entries per tick)',
+            f"{report['audit_completeness']:.2f}",
         )
 
         console.print(table)

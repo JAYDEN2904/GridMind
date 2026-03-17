@@ -132,3 +132,69 @@ def print_baseline_report(report: dict[str, Any]) -> None:
     for district, ticks_shed in report['shedding_duration_per_district'].items():
         shed_table.add_row(district, str(ticks_shed))
     console.print(shed_table)
+
+
+def print_side_by_side_report(
+    mas_report: dict[str, Any],
+    baseline_report: dict[str, Any],
+) -> None:
+    """Print a side-by-side comparison between MAS and baseline KPIs."""
+    console = Console()
+    console.print()
+
+    table = Table(title='GridMind vs ECG Baseline KPI Comparison', expand=True)
+    table.add_column('Metric', min_width=35)
+    table.add_column('MAS', justify='right')
+    table.add_column('Baseline', justify='right')
+
+    def _fmt_pct(value: float) -> str:
+        return f"{value:.1%}"
+
+    table.add_row(
+        'Total Simulation Ticks',
+        str(mas_report.get('total_ticks', '')),
+        str(baseline_report.get('total_ticks', '')),
+    )
+    table.add_row(
+        'Dumsor Frequency (ticks with shedding)',
+        str(mas_report.get('dumsor_frequency', '')),
+        str(baseline_report.get('dumsor_frequency', '')),
+    )
+    table.add_row(
+        'Peak Utilisation',
+        _fmt_pct(mas_report.get('peak_utilisation_pct', 0.0)),
+        _fmt_pct(baseline_report.get('peak_utilisation_pct', 0.0)),
+    )
+    table.add_row(
+        'Renewable Utilisation',
+        _fmt_pct(mas_report.get('renewable_utilisation_pct', 0.0)),
+        _fmt_pct(baseline_report.get('renewable_utilisation_pct', 0.0)),
+    )
+    table.add_row(
+        'Average Response Latency (ticks)',
+        f"{mas_report.get('average_response_latency', 0.0):.1f}",
+        f"{baseline_report.get('average_response_latency', 0.0):.1f}",
+    )
+    table.add_row(
+        'DR Success Rate',
+        _fmt_pct(mas_report.get('dr_success_rate', 0.0)),
+        _fmt_pct(baseline_report.get('dr_success_rate', 0.0)),
+    )
+    table.add_row(
+        'Forecast Accuracy',
+        _fmt_pct(mas_report.get('forecast_accuracy', 0.0)),
+        _fmt_pct(baseline_report.get('forecast_accuracy', 0.0)),
+    )
+
+    console.print(table)
+
+
+if __name__ == '__main__':
+    # Example standalone baseline run for Akosombo low-water scenario.
+    from gridmind.environment.scenarios import akosombo_curtailment
+
+    async def _main() -> None:
+        report = await run_baseline(akosombo_curtailment)
+        print_baseline_report(report)
+
+    asyncio.run(_main())

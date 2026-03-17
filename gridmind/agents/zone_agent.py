@@ -69,7 +69,9 @@ class DistrictZoneAgent(Agent):
             noise = np.random.normal(0, raw_reading * SENSOR_NOISE_FACTOR[district_id])
             noisy_reading = max(0.0, raw_reading + noise)
 
-            capacity_mw = beliefs['capacity_mw']
+            # Use live capacity from the shared environment so scenarios
+            # like GRIDCo line trips are reflected in utilisation.
+            capacity_mw = env.district_capacity_mw.get(district_id, beliefs['capacity_mw'])
             utilisation_pct = noisy_reading / capacity_mw if capacity_mw > 0 else 0.0
 
             beliefs['current_mw'] = noisy_reading
@@ -139,6 +141,8 @@ class DistrictZoneAgent(Agent):
             if msg is None:
                 return
             agent: DistrictZoneAgent = self.agent  # type: ignore[assignment]
+            if msg.get_metadata('performative') != 'BROADCAST':
+                return
             data = parse_message(msg)
             new_status = data.get('status', agent.beliefs['status'])
             agent.beliefs['status'] = new_status

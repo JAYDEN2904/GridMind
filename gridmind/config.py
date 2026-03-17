@@ -159,7 +159,7 @@ OPTIMISE_THRESHOLD_PCT: float = 0.70
 
 # ── Simulation parameters ───────────────────────────────────
 
-DAY_CYCLE_TICKS: int = 20
+DAY_CYCLE_TICKS: int = 20 
 TICK_INTERVAL: float = 0.5
 DEMO_TICK_INTERVAL: float = 1.5
 SIMULATION_TICKS: int = 30

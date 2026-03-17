@@ -49,8 +49,18 @@ async def initiate_contract_net(
     dict with keys: success, awarded_mw, winner, proposals
     """
     conversation_id = f"cnp-ecg-{tick}-{str(uuid4())[:8]}"
-    agent.beliefs.pending_cnp_id = conversation_id
-    agent.beliefs.pending_cnp_proposals = []
+    agent.beliefs.update(
+        'pending_cnp_id',
+        conversation_id,
+        f"Contract Net initiated for {request_mw:.1f} MW",
+        tick,
+    )
+    agent.beliefs.update(
+        'pending_cnp_proposals',
+        [],
+        'Reset CNP proposals for new round',
+        tick,
+    )
 
     sender_jid = str(agent.jid)
     renewable_jids = [KALEO_SOLAR_JID, NZEMA_SOLAR_JID, KETA_WIND_JID]

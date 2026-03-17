@@ -154,7 +154,13 @@ class ECGCentralDispatchAgent(Agent):
 
             elif performative == 'PROPOSE':
                 if data.get('conversation_id') == beliefs.pending_cnp_id:
-                    beliefs.pending_cnp_proposals.append(data)
+                    updated_proposals = beliefs.pending_cnp_proposals + [data]
+                    beliefs.update(
+                        'pending_cnp_proposals',
+                        updated_proposals,
+                        f"CNP proposal received from {data.get('source')}",
+                        tick,
+                    )
                     print(
                         f"[ECG DISPATCH] 📋 PROPOSAL received: "
                         f"{data.get('source')} — "
@@ -300,7 +306,7 @@ class ECGCentralDispatchAgent(Agent):
             for district_jid in DISTRICT_JIDS:
                 msg = build_message(
                     to_jid=district_jid,
-                    performative='INFORM',
+                    performative='BROADCAST',
                     payload=payload,
                     sender_jid=sender_jid,
                     tick=env.tick,
@@ -345,12 +351,22 @@ class ECGCentralDispatchAgent(Agent):
                                 f"CNP insufficient, gap={gap:.1f}MW",
                                 tick,
                             )
-                    agent.beliefs.pending_cnp_id = None
+                    agent.beliefs.update(
+                        'pending_cnp_id',
+                        None,
+                        'CNP round completed',
+                        tick,
+                    )
 
             elif intention == 'optimise_renewable_mix':
                 if not agent.beliefs.pending_cnp_id:
                     await initiate_contract_net(agent, 30.0, tick, behaviour=self)
-                    agent.beliefs.pending_cnp_id = None
+                    agent.beliefs.update(
+                        'pending_cnp_id',
+                        None,
+                        'Renewable optimisation CNP completed',
+                        tick,
+                    )
 
             if agent.beliefs.demand_response_active and not agent.dr_execution_pending:
                 demand = agent.beliefs.get_total_demand()
@@ -382,6 +398,9 @@ class ECGCentralDispatchAgent(Agent):
             if (
                 agent.current_desire == 'EMERGENCY_STABILISE'
                 and agent.env.get_utilisation_pct() > EMERGENCY_THRESHOLD_PCT
+                and not agent.beliefs.pending_cnp_id
+                and not agent.beliefs.demand_response_active
+                and not agent.dr_execution_pending
             ):
                 shed_so_far = 0.0
                 overload_mw = (
@@ -396,6 +415,7 @@ class ECGCentralDispatchAgent(Agent):
                         shed_so_far += DISTRICT_CAPACITY[district] * 0.3
                         agent.beliefs.audit_log.append({
                             'tick': tick,
+                            'agent': 'ecg_central_dispatch',
                             'event': 'DUMSOR_ROTATION',
                             'district': district,
                             'reason': 'EMERGENCY_OVERLOAD',
